@@ -3,17 +3,108 @@ package middleware
 import (
 	"fmt"
 	"golang_redis_integration/models"
+	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
-	jwt "github.com/appleboy/gin-jwt/v2"
 	"github.com/gin-gonic/gin"
-	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
+	"github.com/golang-jwt/jwt"
 )
+
+type InterfaceMiddleware interface {
+	Authorize(c *gin.Context)
+}
+type middleware struct {
+	userMod models.UserModels
+}
+
+func NewMiddleware(userModels models.UserModels) InterfaceMiddleware {
+	return &middleware{
+		userMod: userModels,
+	}
+}
+
+func (ctr *middleware) Authorize(c *gin.Context) {
+
+	// tokenString, err := c.Cookie("Authorization")
+
+	tokenString := c.Request.Header.Get("Authorization")
+	if len(strings.Split(tokenString, " ")) == 2 {
+		tokenString = strings.Split(tokenString, " ")[1]
+	}
+	fmt.Println("in Authorization---------->", tokenString)
+
+	if tokenString == "" {
+		fmt.Println("in tokenstr---------->")
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"status": false,
+			"error":  "Token is empty",
+		})
+		c.AbortWithStatus(http.StatusUnauthorized)
+		return
+	}
+
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		fmt.Println("in --parse-------->", token.Method.(*jwt.SigningMethodHMAC))
+
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["id"])
+		}
+		return []byte(os.Getenv("#user-task-project#")), nil
+	})
+
+	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		fmt.Println("in ---------->", token.Valid)
+
+		if float64(time.Now().Unix()) > claims["exp"].(float64) {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"status":  false,
+				"message": "Token is expired",
+				"error":   err.Error(),
+			})
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+
+		// var user models.Users
+		userID, _ := strconv.Atoi(claims["id"].(string))
+		user, err := ctr.userMod.GetUserRow(models.Users{ID: userID})
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"status": false,
+				"error":  err.Error(),
+			})
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+
+		if user.Email == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"status":  false,
+				"message": "Email is empty",
+				"error":   err.Error(),
+			})
+			c.AbortWithStatus(http.StatusUnauthorized)
+			return
+		}
+		c.Set("user", user)
+		c.Next()
+	} else {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"status":  false,
+			"error":   err.Error(),
+			"message": "Token is wrong or expired",
+		})
+		c.AbortWithStatus(http.StatusUnauthorized)
+		return
+	}
+}
 
 var identityKey = "id"
 
+/*
 func SetupMiddleware(db *gorm.DB) *jwt.GinJWTMiddleware {
 
 	authMiddleware, err := jwt.New(&jwt.GinJWTMiddleware{
@@ -136,12 +227,9 @@ func SetupMiddleware(db *gorm.DB) *jwt.GinJWTMiddleware {
 
 	return authMiddleware
 }
+*/
 
-func VerifyPassword(password, hash string) bool {
-	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
-	return err == nil
-}
-
+/*
 func GenerateTokenNew(data interface{}) string {
 	authMiddleware, err := jwt.New(&jwt.GinJWTMiddleware{
 		Realm:       "jwt",
@@ -180,6 +268,7 @@ func GenerateTokenNew(data interface{}) string {
 
 	return userToken
 }
+*/
 
 /*
 func GenerateJWT(id string) (string, error) {

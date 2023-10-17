@@ -1,12 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"golang_redis_integration/controllers"
-	middleware "golang_redis_integration/middleware"
+	"golang_redis_integration/middleware"
 	"golang_redis_integration/models"
-	"log"
-
-	jwt "github.com/appleboy/gin-jwt/v2"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/postgres"
@@ -15,7 +13,7 @@ import (
 
 func main() {
 
-	dsn := "host=localhost user=postgres password=12345678 dbname=user_task_db port=5433 sslmode=disable TimeZone=Asia/Jakarta"
+	dsn := "host=localhost user=postgres password=12345678 dbname=user_task_project port=5433 sslmode=disable TimeZone=Asia/Jakarta"
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 
 	if err != nil {
@@ -34,18 +32,22 @@ func main() {
 	var taskModels models.TaskModels = models.NewTaskModels(db)
 	var taskController controllers.TaskController = controllers.NewTaskController(taskModels)
 
-	authMiddleware := middleware.SetupMiddleware(db)
+	auth := middleware.NewMiddleware(userModels)
+	fmt.Println(taskController)
+	/*
+		authMiddleware := middleware.SetupMiddleware(db)
 
-	errInit := authMiddleware.MiddlewareInit()
-	if errInit != nil {
-		log.Fatal("authMiddleware.MiddlewareInit() Error:" + errInit.Error())
-	}
+		errInit := authMiddleware.MiddlewareInit()
+		if errInit != nil {
+			log.Fatal("authMiddleware.MiddlewareInit() Error:" + errInit.Error())
+		}
 
-	r.NoRoute(authMiddleware.MiddlewareFunc(), func(c *gin.Context) {
-		claims := jwt.ExtractClaims(c)
-		log.Printf("NoRoute claims: %#v\n", claims)
-		c.JSON(404, gin.H{"code": "PAGE_NOT_FOUND", "message": "Page not found"})
-	})
+		r.NoRoute(authMiddleware.MiddlewareFunc(), func(c *gin.Context) {
+			claims := jwt.ExtractClaims(c)
+			log.Printf("NoRoute claims: %#v\n", claims)
+			c.JSON(404, gin.H{"code": "PAGE_NOT_FOUND", "message": "Page not found"})
+		})
+	*/
 
 	r.Use(gin.Logger())
 
@@ -53,30 +55,25 @@ func main() {
 	r.Use(gin.Recovery())
 
 	r.POST("/register", userController.InsertUser)
-	r.POST("/login", authMiddleware.LoginHandler)
+	// r.POST("/login", authMiddleware.LoginHandler)
+	r.POST("/login", userController.Login)
 	r.GET("/auth/google", googleController.GoogleLogin)
 	r.GET("/auth/google/callback", googleController.GoogleLoginCallback)
 
-	user := r.Group("/")
-	user.Use(authMiddleware.MiddlewareFunc())
-	{
-		user.POST("/users", userController.InsertUser)
-		user.GET("/users", userController.GetUser)
-		user.GET("/users/:id", userController.GetUser)
-		user.PUT("/users/:id", userController.UpdateUser)
-		user.DELETE("/users/:id", userController.DestroyUser)
-	}
+	// user
+	r.POST("/users", auth.Authorize, userController.InsertUser)
+	r.GET("/users", auth.Authorize, userController.GetUser)
+	r.GET("/users/:id", userController.GetUser)
+	r.PUT("/users/:id", userController.UpdateUser)
+	r.DELETE("/users/:id", userController.DestroyUser)
 
-	// endpoint tasks
-	task := r.Group("/")
-	task.Use(authMiddleware.MiddlewareFunc())
-	{
-		task.POST("/tasks", taskController.InsertTask)
-		task.GET("/tasks", taskController.GetTask)
-		task.GET("/tasks/:id", taskController.GetTask)
-		task.PUT("/tasks/:id", taskController.UpdateTask)
-		task.DELETE("/tasks/:id", taskController.DestroyTask)
-	}
+	// task
+	r.POST("/tasks", auth.Authorize, taskController.InsertTask)
+	r.GET("/tasks", auth.Authorize, taskController.GetTask)
+	r.GET("/tasks/:id", auth.Authorize, taskController.GetTask)
+	r.PUT("/tasks/:id", auth.Authorize, taskController.UpdateTask)
+	r.DELETE("/tasks/:id", auth.Authorize, taskController.DestroyTask)
+
 	r.Run()
 
 }

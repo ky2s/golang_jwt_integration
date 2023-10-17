@@ -2,17 +2,22 @@ package controllers
 
 import (
 	"fmt"
+	"golang_redis_integration/helpers"
 	"golang_redis_integration/models"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
+	"github.com/golang-jwt/jwt"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type UserController interface {
+	Login(c *gin.Context)
 	InsertUser(c *gin.Context)
 	GetUser(c *gin.Context)
 	UpdateUser(c *gin.Context)
@@ -32,6 +37,80 @@ func NewUserController(userModels models.UserModels) UserController {
 func Hash(password string) (string, error) {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
 	return string(bytes), err
+}
+
+func (ctr *userController) Login(c *gin.Context) {
+
+	var reqData models.Login
+	err := c.ShouldBindJSON(&reqData)
+	if err != nil {
+		fmt.Println(err.Error())
+		if strings.Contains(err.Error(), "invalid character") == true {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		errorMessages := []string{}
+		for _, e := range err.(validator.ValidationErrors) {
+			errorMessage := fmt.Sprintf("Error validate %s, condition: %s", e.Field(), e.ActualTag())
+			errorMessages = append(errorMessages, errorMessage)
+		}
+
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": errorMessages,
+		})
+		return
+
+	}
+
+	fmt.Println(reqData)
+
+	if reqData.Email == "" || reqData.Password == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  false,
+			"message": "Email or password is empty",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	userData, err := ctr.userMod.GetUserRow(models.Users{Email: reqData.Email})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  false,
+			"message": "Invalid email or password",
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	if helpers.VerifyPassword(reqData.Password, userData.Password) {
+
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"id":  strconv.Itoa(userData.ID),
+			"exp": time.Now().Add(time.Minute * 10).Unix(),
+		})
+
+		// Sign and get the complete encoded token as a string using the secret
+		tokenString, err := token.SignedString([]byte(os.Getenv("#user-task-project#")))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		c.SetSameSite(http.SameSiteLaxMode)
+		// c.SetCookie("Authorization", tokenString, 3600*24*30, "", "", false, true)
+		c.JSON(http.StatusOK, gin.H{
+			"status":  true,
+			"message": "Success created data",
+			"data":    userData,
+			"token":   tokenString,
+		})
+	}
 }
 
 func (ctr *userController) InsertUser(c *gin.Context) {

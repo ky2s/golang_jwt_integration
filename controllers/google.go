@@ -4,13 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"golang_redis_integration/middleware"
 	"golang_redis_integration/models"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"gorm.io/gorm"
@@ -153,20 +155,37 @@ func (ctr *googleController) GoogleLoginCallback(c *gin.Context) {
 		res.Email = response.Email
 		res.CreatedAt = createData.CreatedAt
 
+		// tokenString := ""
 		// tokenString := GenerateToken(strconv.Itoa(createData.ID))
 		// tokenString := middleware.GenerateTokenNew(strconv.Itoa(checkUser.ID))
 
-		dataToken := map[string]interface{}{
-			"id": strconv.Itoa(createData.ID),
-		}
-		tokenString := middleware.GenerateTokenNew(dataToken)
+		// dataToken := map[string]interface{}{
+		// 	"id": strconv.Itoa(createData.ID),
+		// }
+		// tokenString := middleware.GenerateTokenNew(dataToken)
+		tokenJWT := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"id":  strconv.Itoa(createData.ID),
+			"exp": time.Now().Add(time.Minute * 10).Unix(),
+		})
 
+		// Sign and get the complete encoded token as a string using the secret
+		tokenString, err := tokenJWT.SignedString([]byte(os.Getenv("#user-task-project#")))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		c.SetSameSite(http.SameSiteLaxMode)
+		c.SetCookie("Authorization", tokenString, 3600*24*30, "", "", false, true)
 		c.JSON(http.StatusOK, gin.H{
 			"status":  true,
-			"message": "Success login using Google Account",
-			"data":    res,
+			"message": "Success created new user data",
+			"data":    userData,
 			"token":   tokenString,
 		})
+
 		return
 	}
 
@@ -177,11 +196,13 @@ func (ctr *googleController) GoogleLoginCallback(c *gin.Context) {
 	res.Email = checkUser.Email
 	res.CreatedAt = checkUser.CreatedAt
 
+	// tokenString := ""
+
 	// tokenString := middleware.GenerateTokenNew(strconv.Itoa(checkUser.ID))
-	dataToken := map[string]interface{}{
-		"id": strconv.Itoa(checkUser.ID),
-	}
-	tokenString := middleware.GenerateTokenNew(dataToken)
+	// dataToken := map[string]interface{}{
+	// 	"id": strconv.Itoa(checkUser.ID),
+	// }
+	// tokenString := middleware.GenerateTokenNew(dataToken)
 
 	// fmt.Println("authMiddleware :: ", authMiddleware)
 
@@ -191,18 +212,26 @@ func (ctr *googleController) GoogleLoginCallback(c *gin.Context) {
 	// }
 	// tokenString, _, err := jwt.TokenGenerator(dataToken)
 
+	tokenJWT := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"id":  strconv.Itoa(checkUser.ID),
+		"exp": time.Now().Add(time.Minute * 10).Unix(),
+	})
+
+	// Sign and get the complete encoded token as a string using the secret
+	tokenString, err := tokenJWT.SignedString([]byte(os.Getenv("#user-task-project#")))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"status":  false,
-			"message": "Failed generate token",
+			"error": err.Error(),
 		})
 		return
 	}
 
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie("Authorization", tokenString, 3600*24*30, "", "", false, true)
 	c.JSON(http.StatusOK, gin.H{
 		"status":  true,
-		"message": "Success login using Google Account",
-		"data":    res,
+		"message": "Success created new user data",
+		"data":    userData,
 		"token":   tokenString,
 	})
 	return
